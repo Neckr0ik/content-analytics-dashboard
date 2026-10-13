@@ -60,7 +60,7 @@ def plot_genre_performance(genre_df: pd.DataFrame, out_dir: str = OUT) -> str:
     axes[1].pie(genre_df["share_pct"], labels=genre_df["genre"],
                 autopct="%1.1f%%", startangle=140,
                 colors=sns.color_palette("muted", len(genre_df)))
-    axes[1].set_title("Audience Share by Genre", fontweight="bold")
+    axes[1].set_title("Share of channel audience", fontweight="bold")
     return _save("03_genre_performance.png", out_dir)
 
 def plot_scheduling_heatmap(heatmap_df: pd.DataFrame, out_dir: str = OUT) -> str:
@@ -83,7 +83,7 @@ def plot_roi(roi_df: pd.DataFrame, genre_roi: pd.DataFrame, out_dir: str = OUT) 
     axes[1].barh(genre_roi_s["genre"], genre_roi_s["avg_cost_per_viewer"],
                  color=NAVY, alpha=0.8)
     axes[1].set_xlabel("Avg Cost per Episode View (USD)")
-    axes[1].set_title("Content ROI by Genre", fontweight="bold")
+    axes[1].set_title("Cost per episode view by genre", fontweight="bold")
     return _save("05_content_roi.png", out_dir)
 
 def plot_platform_breakdown(app_df: pd.DataFrame, out_dir: str = OUT) -> str:

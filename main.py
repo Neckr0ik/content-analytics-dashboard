@@ -19,20 +19,36 @@ from src.analyzer import AudienceAnalyzer, ROIAnalyzer
 from src.data_generator import generate_content_roi, generate_daily_ratings, generate_platform_metrics
 
 
+def _positive(kind):
+    def check(value: str):
+        try:
+            v = kind(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"{value!r} is not a valid number")
+        if v <= 0:
+            raise argparse.ArgumentTypeError(f"must be greater than 0 (got {value})")
+        return v
+    return check
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Broadcast/OTT content analytics on synthetic data")
     p.add_argument("--start", type=date.fromisoformat, default=date(2022, 6, 1), help="YYYY-MM-DD")
     p.add_argument("--end", type=date.fromisoformat, default=date(2025, 5, 31), help="YYYY-MM-DD")
-    p.add_argument("--growth", type=float, default=3.0,
+    p.add_argument("--growth", type=_positive(float), default=3.0,
                    help="daily audience level at --end as a multiple of --start (default 3.0)")
-    p.add_argument("--peak-viewers", type=int, default=50_000,
+    p.add_argument("--peak-viewers", type=_positive(int), default=50_000,
                    help="total monthly platform viewers in the last month (default 50,000)")
-    p.add_argument("--titles", type=int, default=80, help="number of titles in the ROI table")
+    p.add_argument("--titles", type=_positive(int), default=80,
+                   help="number of titles in the ROI table (at least 1)")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--out", default="output")
     p.add_argument("--csv", action="store_true", help="also export the generated data as CSV")
     p.add_argument("--no-charts", action="store_true")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.end <= args.start:
+        p.error(f"--end ({args.end}) must be after --start ({args.start})")
+    return args
 
 
 def main(argv=None) -> int:
