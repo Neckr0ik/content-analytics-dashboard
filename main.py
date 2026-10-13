@@ -1,64 +1,99 @@
 """
 Content Analytics Dashboard
-Run:  python main.py
-Outputs six charts to output/ and prints a summary report to stdout.
-"""
-from datetime import date
-from src.data_generator import generate_daily_ratings, generate_app_metrics, generate_content_roi
-from src.analyzer import AudienceAnalyzer, ROIAnalyzer
-from src.visualizer import (plot_growth, plot_monthly_trend, plot_genre_performance,
-                             plot_scheduling_heatmap, plot_roi, plot_platform_breakdown)
 
-def main():
-    print("Content Analytics Dashboard")
+    python main.py                                  # 3 years of synthetic data -> 6 charts in output/
+    python main.py --start 2023-01-01 --end 2025-12-31 --growth 2.0 --seed 7
+    python main.py --no-charts --csv                # summary + CSV exports only
+
+All data is synthetic (seeded RNG); see src/data_generator.py for the assumptions.
+"""
+from __future__ import annotations
+
+import argparse
+import math
+import os
+import sys
+from datetime import date
+
+from src.analyzer import AudienceAnalyzer, ROIAnalyzer
+from src.data_generator import generate_content_roi, generate_daily_ratings, generate_platform_metrics
+
+
+def parse_args(argv=None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Broadcast/OTT content analytics on synthetic data")
+    p.add_argument("--start", type=date.fromisoformat, default=date(2022, 6, 1), help="YYYY-MM-DD")
+    p.add_argument("--end", type=date.fromisoformat, default=date(2025, 5, 31), help="YYYY-MM-DD")
+    p.add_argument("--growth", type=float, default=3.0,
+                   help="daily audience level at --end as a multiple of --start (default 3.0)")
+    p.add_argument("--peak-viewers", type=int, default=50_000,
+                   help="total monthly platform viewers in the last month (default 50,000)")
+    p.add_argument("--titles", type=int, default=80, help="number of titles in the ROI table")
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--out", default="output")
+    p.add_argument("--csv", action="store_true", help="also export the generated data as CSV")
+    p.add_argument("--no-charts", action="store_true")
+    return p.parse_args(argv)
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    print("Content Analytics Dashboard  (synthetic data)")
     print("=" * 50)
 
-    START = date(2022, 6, 1)
-    END   = date(2025, 5, 31)
-
     print("\n[1/3] Generating synthetic audience data...")
-    ratings  = generate_daily_ratings(START, END)
-    app_data = generate_app_metrics(START, END)
-    content  = generate_content_roi(n=80)
+    ratings = generate_daily_ratings(args.start, args.end, growth_multiple=args.growth, seed=args.seed)
+    platforms = generate_platform_metrics(args.start, args.end, peak_viewers=args.peak_viewers,
+                                          start_viewers=args.peak_viewers // 2, seed=args.seed)
+    content = generate_content_roi(n=args.titles, seed=args.seed)
 
     print("[2/3] Running analysis...")
     aa = AudienceAnalyzer(ratings)
     ra = ROIAnalyzer(content)
+    annual = aa.yoy_growth()
+    top_slots = aa.top_slots()
+    genre_roi = ra.genre_roi_summary()
 
-    annual        = aa.yoy_growth()
-    top_slots     = aa.top_slots()
-    genre_perf    = aa.genre_performance()
-    monthly_trend = aa.monthly_trend()
-    heatmap_data  = aa.scheduling_heatmap_data()
-    top_roi       = ra.top_roi_titles()
-    genre_roi     = ra.genre_roi_summary()
+    if args.csv:
+        os.makedirs(args.out, exist_ok=True)
+        for name, df in [("daily_ratings", ratings), ("platform_metrics", platforms), ("content_roi", content)]:
+            df.to_csv(os.path.join(args.out, f"{name}.csv"), index=False)
+        print(f"  CSV exports -> {args.out}/")
 
-    print("\n[3/3] Generating charts...")
-    plot_growth(annual)
-    plot_monthly_trend(monthly_trend)
-    plot_genre_performance(genre_perf)
-    plot_scheduling_heatmap(heatmap_data)
-    plot_roi(top_roi, genre_roi)
-    plot_platform_breakdown(app_data)
+    if not args.no_charts:
+        print("\n[3/3] Generating charts...")
+        from src import visualizer as viz  # matplotlib only when needed
+        if not annual.empty:
+            viz.plot_growth(annual, args.out)
+        viz.plot_monthly_trend(aa.monthly_trend(), args.out)
+        viz.plot_genre_performance(aa.genre_performance(), args.out)
+        viz.plot_scheduling_heatmap(aa.scheduling_heatmap_data(), args.out)
+        viz.plot_roi(ra.top_roi_titles(), genre_roi, args.out)
+        viz.plot_platform_breakdown(platforms, args.out)
 
     print("\n" + "=" * 50)
-    print("KEY FINDINGS")
+    print("KEY FINDINGS (synthetic data)")
     print("=" * 50)
+    if annual.empty:
+        print("  Fewer than 12 months of data: no full-year comparison.")
     for _, row in annual.iterrows():
-        growth = f"{row['yoy_growth_pct']:+.1f}%" if not __import__('math').isnan(row['yoy_growth_pct']) else "baseline"
-        cum    = f"{row['cumulative_growth_pct']:.0f}%" if row['cumulative_growth_pct'] > 0 else "baseline"
-        print(f"  {int(row['year'])}  Total Audience: {row['total_audience']:>12,.0f}  YoY: {growth:>8}  Cumulative: {cum}")
+        yoy = row["yoy_growth_pct"]
+        growth = "baseline" if math.isnan(yoy) else f"{yoy:+.1f}%"
+        cum = "baseline" if row["year"] == 1 else f"{row['cumulative_growth_pct']:+.0f}%"
+        print(f"  {row['label']:<26} Total audience: {row['total_audience']:>13,.0f}  "
+              f"YoY: {growth:>8}  vs. Year 1: {cum}")
 
-    print(f"\nTop performing time slots:")
+    print("\nTop performing time slots:")
     for _, r in top_slots.iterrows():
         print(f"  {r['slot']}  ->  avg {r['avg_audience']:,.0f} viewers")
 
-    print(f"\nBest content ROI genre: {genre_roi.iloc[0]['genre']}  "
-          f"(${genre_roi.iloc[0]['avg_cost_per_viewer']:.4f}/viewer)")
+    best = genre_roi.iloc[0]
+    print(f"\nMost cost-efficient genre: {best['genre']}  (${best['avg_cost_per_viewer']:.4f} per episode view)")
 
-    peak_app = app_data.groupby("month")["monthly_viewers"].sum().max()
-    print(f"\nPeak monthly app viewers: {peak_app:,.0f}")
-    print("\nAll charts saved to output/")
+    peak = platforms.groupby("month")["monthly_viewers"].sum().max()
+    print(f"\nPeak monthly viewers across platforms: {peak:,.0f}")
+    print(f"\nOutputs saved to {args.out}/")
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
