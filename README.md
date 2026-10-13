@@ -8,7 +8,7 @@
 
 The project generates **synthetic** audience data for a regional broadcast + OTT operation and runs the analysis a programming team would use: growth by year, scheduling heatmap, platform mix and content cost efficiency.
 
-> Inspired by audience analytics work at a Mexican broadcast network (UNIFE México). No real ratings or audience data are included.
+> Inspired by audience analytics work at a Mexican broadcast network. No real ratings or audience data are included.
 
 ---
 
@@ -18,9 +18,9 @@ The project generates **synthetic** audience data for a regional broadcast + OTT
 |---|---|
 | `01_audience_growth.png` | Total audience per 12-month period, with growth vs. Year 1 |
 | `02_monthly_trend.png` | Monthly audience trend with seasonality |
-| `03_genre_performance.png` | Average audience and audience share by genre |
+| `03_genre_performance.png` | Average audience by genre, and each genre's share of channel audience |
 | `04_scheduling_heatmap.png` | Average audience by time slot × genre |
-| `05_content_roi.png` | Cost per episode view: the 10 most efficient titles, and the average by genre |
+| `05_content_roi.png` | Cost per episode view: the 10 most efficient titles, and cost per episode view by genre |
 | `06_platform_breakdown.png` | Monthly viewers by platform (Linear TV, iOS, Android, CTV, Web) |
 
 Run with the defaults (`python main.py`), the console summary shows:
@@ -43,7 +43,7 @@ These figures are synthetic and follow from the generator's assumptions. The dai
 - **Platform metrics:** total monthly viewers grow linearly from `peak/2` to `--peak-viewers` (default 50,000). Fixed shares: Linear TV 45%, iOS 20%, Android 18%, CTV 12%, Web 5%.
 - **Content ROI:** 80 titles with random acquisition cost, episodes and audience per episode. `total_audience` sums the episode audiences, so `cost_per_viewer` is a **cost per episode view**, not a cost per unique viewer.
 
-Growth is reported per **12-month period counted from the start date**, and incomplete trailing periods are dropped. (Earlier versions grouped by calendar year, so a June–May window produced partial years and a misleading −56% "drop" in the final year.)
+Growth is reported per **12-month period counted from the start date**: Year *k* runs from `start + (k−1) years` to the day before `start + k years` (calendar years via `pandas.DateOffset`, so leap years are handled). A period counts only if the data reaches its last day; incomplete trailing periods are dropped. (Earlier versions grouped by calendar year, so a June–May window produced partial years and a misleading −56% "drop" in the final year.)
 
 ---
 
