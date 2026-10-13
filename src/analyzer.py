@@ -1,4 +1,5 @@
 """Core analytics: growth metrics, slot performance, genre rankings, ROI."""
+import numpy as np
 import pandas as pd
 
 class AudienceAnalyzer:
@@ -6,21 +7,26 @@ class AudienceAnalyzer:
         self.df = ratings.copy()
         dates = pd.to_datetime(self.df["date"])
         self.df["month"] = dates.dt.to_period("M")
-        # Year 1, Year 2, ... counted from the first date (12-month periods), so a
-        # window like Jun-2022..May-2025 is three full years instead of four partial
-        # calendar years (which made the last partial year look like a collapse).
-        start = dates.min()
-        months = (dates.dt.year - start.year) * 12 + (dates.dt.month - start.month)
-        months -= (dates.dt.day < start.day).astype(int)
-        self.df["period_year"] = months // 12 + 1
+        # Year 1, Year 2, ... are 12-month periods counted from the first date:
+        # period k covers [start + (k-1) years, start + k years). A window like
+        # Jun-2022..May-2025 is three full years instead of four partial calendar years
+        # (which made the last partial year look like a collapse). DateOffset handles
+        # leap days (a period from 29 Feb ends on 28 Feb).
+        start, last = dates.min(), dates.max()
+        edges = [start]
+        while edges[-1] <= last:
+            edges.append(start + pd.DateOffset(years=len(edges)))
+        self.df["period_year"] = np.searchsorted(np.array(edges, dtype="datetime64[ns]"),
+                                                 dates.to_numpy(), side="right")
+        # a period is complete only if the data reaches its last day (the day before the next edge)
+        self.complete_periods = {k for k in range(1, len(edges))
+                                 if edges[k] - pd.Timedelta(days=1) <= last}
         self.start = start
 
     def yoy_growth(self) -> pd.DataFrame:
         """Totals per 12-month period from the start date. Incomplete trailing periods are dropped."""
-        grp = self.df.groupby("period_year")
-        annual = grp["audience"].sum().reset_index(name="total_audience")
-        annual["days"] = grp["date"].nunique().values
-        annual = annual[annual["days"] >= 365].drop(columns="days").reset_index(drop=True)
+        annual = self.df.groupby("period_year")["audience"].sum().reset_index(name="total_audience")
+        annual = annual[annual["period_year"].isin(self.complete_periods)].reset_index(drop=True)
         annual = annual.rename(columns={"period_year": "year"})
         annual["label"] = [f"Year {y} (from {(self.start + pd.DateOffset(years=y - 1)):%b %Y})"
                            for y in annual["year"]]

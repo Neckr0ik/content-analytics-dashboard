@@ -78,3 +78,31 @@ def test_roi_tables():
 def test_rejects_bad_dates():
     with pytest.raises(ValueError):
         generate_daily_ratings(END, START)
+
+
+def test_period_needs_data_to_its_last_day():
+    # 2023-01-01..2023-12-30 has 364 days: one short of a full year -> no complete period
+    short = AudienceAnalyzer(generate_daily_ratings(date(2023, 1, 1), date(2023, 12, 30))).yoy_growth()
+    assert short.empty
+    full = AudienceAnalyzer(generate_daily_ratings(date(2023, 1, 1), date(2023, 12, 31))).yoy_growth()
+    assert list(full["year"]) == [1]
+
+
+def test_periods_follow_calendar_years_across_leap_days():
+    # 2023-03-01..2024-02-29 is a full (366-day) year; the old 365-day/month arithmetic and
+    # a fixed day count disagree on such windows
+    aa = AudienceAnalyzer(generate_daily_ratings(date(2023, 3, 1), date(2024, 2, 29)))
+    assert list(aa.yoy_growth()["year"]) == [1]
+    assert aa.df.loc[aa.df["date"] == date(2024, 2, 29), "period_year"].unique().tolist() == [1]
+    # starting on a leap day: the first period ends on 2025-02-27, the next one starts 2025-02-28
+    aa = AudienceAnalyzer(generate_daily_ratings(date(2024, 2, 29), date(2026, 2, 27)))
+    by_day = aa.df.drop_duplicates("date").set_index("date")["period_year"]
+    assert by_day[date(2025, 2, 27)] == 1 and by_day[date(2025, 2, 28)] == 2
+    assert list(aa.yoy_growth()["year"]) == [1, 2]
+
+
+def test_period_boundaries_mid_month():
+    aa = AudienceAnalyzer(generate_daily_ratings(date(2022, 6, 15), date(2024, 6, 14)))
+    by_day = aa.df.drop_duplicates("date").set_index("date")["period_year"]
+    assert by_day[date(2023, 6, 14)] == 1 and by_day[date(2023, 6, 15)] == 2
+    assert list(aa.yoy_growth()["year"]) == [1, 2]
