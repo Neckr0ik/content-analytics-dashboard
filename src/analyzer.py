@@ -1,18 +1,31 @@
 """Core analytics: growth metrics, slot performance, genre rankings, ROI."""
 import pandas as pd
-import numpy as np
 
 class AudienceAnalyzer:
     def __init__(self, ratings: pd.DataFrame):
         self.df = ratings.copy()
-        self.df["year"] = pd.to_datetime(self.df["date"]).dt.year
-        self.df["month"] = pd.to_datetime(self.df["date"]).dt.to_period("M")
+        dates = pd.to_datetime(self.df["date"])
+        self.df["month"] = dates.dt.to_period("M")
+        # Year 1, Year 2, ... counted from the first date (12-month periods), so a
+        # window like Jun-2022..May-2025 is three full years instead of four partial
+        # calendar years (which made the last partial year look like a collapse).
+        start = dates.min()
+        months = (dates.dt.year - start.year) * 12 + (dates.dt.month - start.month)
+        months -= (dates.dt.day < start.day).astype(int)
+        self.df["period_year"] = months // 12 + 1
+        self.start = start
 
     def yoy_growth(self) -> pd.DataFrame:
-        annual = (self.df.groupby("year")["audience"].sum()
-                  .reset_index(name="total_audience"))
+        """Totals per 12-month period from the start date. Incomplete trailing periods are dropped."""
+        grp = self.df.groupby("period_year")
+        annual = grp["audience"].sum().reset_index(name="total_audience")
+        annual["days"] = grp["date"].nunique().values
+        annual = annual[annual["days"] >= 365].drop(columns="days").reset_index(drop=True)
+        annual = annual.rename(columns={"period_year": "year"})
+        annual["label"] = [f"Year {y} (from {(self.start + pd.DateOffset(years=y - 1)):%b %Y})"
+                           for y in annual["year"]]
         annual["yoy_growth_pct"] = annual["total_audience"].pct_change() * 100
-        baseline = annual["total_audience"].iloc[0]
+        baseline = annual["total_audience"].iloc[0] if len(annual) else float("nan")
         annual["cumulative_growth_pct"] = (annual["total_audience"] / baseline - 1) * 100
         return annual
 
